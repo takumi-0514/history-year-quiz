@@ -146,12 +146,20 @@ export const App: React.FC = () => {
 
   // Sync status check & realtime listener setup on mount
   useEffect(() => {
-    const status = checkSyncStatus();
-    setIsTrackerConnected(status.isConnected);
+    try {
+      const status = checkSyncStatus();
+      setIsTrackerConnected(status.isConnected);
 
-    setupRealtimeSync((updatedStats) => {
-      setStats(updatedStats);
-    });
+      if (status.isConnected) {
+        setupRealtimeSync((updatedStats) => {
+          setStats(updatedStats);
+        }).catch(err => {
+          console.warn("Realtime sync setup failed:", err);
+        });
+      }
+    } catch (e) {
+      console.warn("Error initializing sync:", e);
+    }
   }, []);
 
   // Global game type switcher
