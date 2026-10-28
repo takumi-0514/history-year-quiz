@@ -126,7 +126,7 @@ export const FilteredQuizModal: React.FC<FilteredQuizModalProps> = ({
                     sortYearGap === 'near' ? 'bg-amber-900 text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
-                  近い (4〜10年)
+                  近い (2〜10年)
                 </button>
                 <button
                   type="button"

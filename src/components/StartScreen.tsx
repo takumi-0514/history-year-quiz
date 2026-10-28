@@ -286,7 +286,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   sortYearGap === 'near' ? 'bg-[#4c6444] text-white shadow-sm' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
-                近い (4〜10年)
+                近い (2〜10年)
               </button>
               <button
                 type="button"
@@ -309,10 +309,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </div>
             <p className="text-[10px] text-stone-500 mt-1.5 leading-relaxed pl-1">
               {sortYearGap === 'near'
-                ? '基準となる出来事の前後4〜10年の範囲から抽出。非常に近い年号の順序を見抜く高難易度修行。'
+                ? '出来事同士の年代差が約2〜10年。非常に近い年号を正しく並べる高難易度修行。'
                 : sortYearGap === 'medium'
-                ? '基準となる出来事の前後10〜25年の範囲から抽出。手ごたえのある標準的な並べ替え。'
-                : '基準となる出来事の前後25〜50年の範囲から抽出。歴史の流れと大枠を捉える基本クイズ。'}
+                ? '出来事同士の年代差が約10〜25年。手ごたえのある標準的な並べ替えクイズ。'
+                : '出来事同士の年代差が約25〜50年。歴史の流れと大枠を捉える基本クイズ。'}
             </p>
           </div>
         )}
