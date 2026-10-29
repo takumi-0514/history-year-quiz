@@ -21,7 +21,7 @@ import {
   get4SortEvents,
   resetAllStats,
 } from './utils/quizHelpers';
-import { checkSyncStatus, setupRealtimeSync } from './services/studyTracker';
+import { checkSyncStatus, setupRealtimeSync, pushStudyTrackerRecord } from './services/studyTracker';
 
 import { Header } from './components/Header';
 import { StartScreen } from './components/StartScreen';
@@ -72,9 +72,49 @@ export const App: React.FC = () => {
   const [flashcardQuestions, setFlashcardQuestions] = useState<HistoryEvent[]>([]);
   const [fcIndex, setFcIndex] = useState<number>(0);
 
-  // Time tracking
-  const [quizStartTime, setQuizStartTime] = useState<number>(0);
+  // Time & Session tracking state
+  const [roundStartTime, setRoundStartTime] = useState<number>(0);
+  const [accumulatedSessionSec, setAccumulatedSessionSec] = useState<number>(0);
+  const [isSessionRecorded, setIsSessionRecorded] = useState<boolean>(false);
   const [quizElapsedSec, setQuizElapsedSec] = useState<number>(0);
+
+  // Helper: Start a fresh session when starting from StartScreen
+  const initNewSession = () => {
+    const now = Date.now();
+    setRoundStartTime(now);
+    setAccumulatedSessionSec(0);
+    setIsSessionRecorded(false);
+  };
+
+  // Helper: Continue session for a new round within same session (retry/review/flashcard)
+  const startNextRound = () => {
+    if (roundStartTime > 0) {
+      const roundSec = Math.max(0, Math.floor((Date.now() - roundStartTime) / 1000));
+      setAccumulatedSessionSec(prev => prev + roundSec);
+    }
+    setRoundStartTime(Date.now());
+  };
+
+  // Helper: Finish a round and calculate total session time
+  const finishCurrentRound = (): number => {
+    let total = accumulatedSessionSec;
+    if (roundStartTime > 0) {
+      const roundSec = Math.max(0, Math.floor((Date.now() - roundStartTime) / 1000));
+      total = accumulatedSessionSec + roundSec;
+      setAccumulatedSessionSec(total);
+      setRoundStartTime(0);
+    }
+    return total;
+  };
+
+  // Helper: Get current live total session time
+  const getCurrentTotalSessionSec = (): number => {
+    let total = accumulatedSessionSec;
+    if (roundStartTime > 0) {
+      total += Math.max(0, Math.floor((Date.now() - roundStartTime) / 1000));
+    }
+    return total;
+  };
 
   // Modals state
   const [isTimelineOpen, setIsTimelineOpen] = useState<boolean>(false);
@@ -104,10 +144,13 @@ export const App: React.FC = () => {
     isOpen: boolean;
     title: string;
     message: string;
+    iconClass?: string;
+    iconColorClass?: string;
     confirmText: string;
     cancelText: string;
     confirmBtnClass?: string;
     onConfirm: () => void;
+    onCancel?: () => void;
   }>({
     isOpen: false,
     title: '',
@@ -202,7 +245,7 @@ export const App: React.FC = () => {
 
   // Start Flashcards
   const startFlashcards = useCallback(() => {
-    setQuizStartTime(Date.now());
+    initNewSession();
     if (dateFilteredDatabase.length === 0) {
       showAlert('お知らせ', '指定された年代のデータが見つかりません。', 'fa-circle-info', 'text-amber-700');
       return;
@@ -226,7 +269,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    setQuizStartTime(Date.now());
+    initNewSession();
     setIsReviewMode(false);
     setIsFilteredQuizMode(false);
 
@@ -390,17 +433,89 @@ export const App: React.FC = () => {
     if (questionIndex + 1 < currentQuestions.length) {
       setQuestionIndex(prev => prev + 1);
     } else {
-      const elapsed = Math.floor((Date.now() - quizStartTime) / 1000);
-      setQuizElapsedSec(elapsed);
+      const totalSec = finishCurrentRound();
+      setQuizElapsedSec(totalSec);
       setCurrentScreen('result');
     }
   };
 
-  // Review only wrong questions
+  // Helper to extract HistoryEvent items from questions (handles array or pair objects)
+  const extractEventsFromQuestions = (questions: any[]): HistoryEvent[] => {
+    const map = new Map<string, HistoryEvent>();
+    questions.forEach(q => {
+      if (!q) return;
+      if (Array.isArray(q)) {
+        q.forEach(item => {
+          if (item && item.id) map.set(item.id, item);
+        });
+      } else if (q.id) {
+        map.set(q.id, q);
+      } else if (q.jp && q.wd) {
+        if (q.jp.id) map.set(q.jp.id, q.jp);
+        if (q.wd.id) map.set(q.wd.id, q.wd);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  // Review only wrong questions with Quiz
   const handleReviewOnly = () => {
-    setQuizStartTime(Date.now());
+    startNextRound();
     setIsReviewMode(true);
     setCurrentQuestions(shuffle(incorrectQuestions));
+    setQuestionIndex(0);
+    setScore(0);
+    setIncorrectAnswers([]);
+    setIncorrectQuestions([]);
+    setCurrentScreen('quiz');
+  };
+
+  // Review wrong questions with Flashcards
+  const handleReviewWithFlashcards = () => {
+    const extractedEvents = extractEventsFromQuestions(incorrectQuestions);
+    if (extractedEvents.length === 0) return;
+
+    startNextRound();
+    setFlashcardQuestions(extractedEvents);
+    setFcIndex(0);
+    setIsFilteredQuizMode(true);
+    setFilteredQuizLabel('間違えた問題の確認');
+    setCurrentScreen('flashcard');
+  };
+
+  // Start Quiz directly from Flashcards (using current flashcard questions)
+  const handleStartQuizFromFlashcards = () => {
+    if (flashcardQuestions.length === 0) {
+      startGame();
+      return;
+    }
+
+    startNextRound();
+    setIsReviewMode(true);
+
+    let generated: any[] = [];
+    if (settingsMode === 'sort') {
+      const questionsList: HistoryEvent[][] = [];
+      if (flashcardQuestions.length >= 4) {
+        const loops = Math.min(10, Math.floor(flashcardQuestions.length / 2) || 1);
+        for (let i = 0; i < loops; i++) {
+          const set = get4SortEvents(flashcardQuestions, sortYearGap);
+          if (set.length === 4) questionsList.push(set);
+        }
+      }
+      if (questionsList.length === 0) {
+        for (let i = 0; i < 5; i++) {
+          const baseItem = flashcardQuestions[i % flashcardQuestions.length];
+          const set = get4SortEvents(activeDatabase, sortYearGap, baseItem);
+          if (set.length === 4) questionsList.push(set);
+        }
+      }
+      generated = questionsList.length > 0 ? questionsList : [activeDatabase.slice(0, 4)];
+    } else {
+      generated = shuffle([...flashcardQuestions]);
+    }
+
+    setCurrentQuestions(generated);
     setQuestionIndex(0);
     setScore(0);
     setIncorrectAnswers([]);
@@ -422,9 +537,61 @@ export const App: React.FC = () => {
   };
 
   const handleFinishCards = () => {
-    const elapsed = Math.floor((Date.now() - quizStartTime) / 1000);
-    setQuizElapsedSec(elapsed);
+    const totalSec = finishCurrentRound();
+    setQuizElapsedSec(totalSec);
     setCurrentScreen('flashcard_result');
+  };
+
+  // Return to start screen with save confirmation if unsaved progress exists
+  const handleGoToStartWithSaveCheck = (onConfirmed?: () => void) => {
+    const totalSec = getCurrentTotalSessionSec();
+
+    if (isTrackerConnected && !isSessionRecorded && totalSec >= 5) {
+      const mins = Math.floor(totalSec / 60);
+      const secs = totalSec % 60;
+      const timeStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
+
+      let fieldTxt = '日本史';
+      if (settingsField === 'world') fieldTxt = '世界史';
+      else if (settingsField === 'mixed') fieldTxt = '日世混合';
+
+      setConfirmModal({
+        isOpen: true,
+        title: '学習記録を保存しますか？',
+        message: `今回の学習時間（合計 ${timeStr}）を Study Tracker に送信して保存しますか？\n（保存せずに戻ると今回の記録は保存されません）`,
+        iconClass: 'fa-cloud-arrow-up',
+        iconColorClass: 'text-indigo-600',
+        confirmText: '保存してトップへ',
+        cancelText: '保存せずにトップへ',
+        confirmBtnClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+        onConfirm: async () => {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          const calcMins = Math.max(1, Math.round(totalSec / 60));
+          let label = `【学習セッション】分野: ${fieldTxt}`;
+          if (isFilteredQuizMode) {
+            label = `【特訓学習 ${filteredQuizLabel}】`;
+          }
+          await pushStudyTrackerRecord(calcMins, totalSec, label);
+          setIsSessionRecorded(true);
+          setRoundStartTime(0);
+          setAccumulatedSessionSec(0);
+          if (onConfirmed) onConfirmed();
+          else setCurrentScreen('start');
+        },
+        onCancel: () => {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          setRoundStartTime(0);
+          setAccumulatedSessionSec(0);
+          if (onConfirmed) onConfirmed();
+          else setCurrentScreen('start');
+        },
+      });
+    } else {
+      setRoundStartTime(0);
+      setAccumulatedSessionSec(0);
+      if (onConfirmed) onConfirmed();
+      else setCurrentScreen('start');
+    }
   };
 
   // Exit confirm dialogs
@@ -438,7 +605,7 @@ export const App: React.FC = () => {
       confirmBtnClass: 'bg-red-600 hover:bg-red-700 text-white',
       onConfirm: () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        setCurrentScreen('start');
+        handleGoToStartWithSaveCheck();
       },
     });
   };
@@ -453,8 +620,8 @@ export const App: React.FC = () => {
       confirmBtnClass: 'bg-amber-600 hover:bg-amber-700 text-white',
       onConfirm: () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        const elapsed = Math.floor((Date.now() - quizStartTime) / 1000);
-        setQuizElapsedSec(elapsed);
+        const totalSec = finishCurrentRound();
+        setQuizElapsedSec(totalSec);
         setCurrentScreen('flashcard_result');
       },
     });
@@ -506,15 +673,15 @@ export const App: React.FC = () => {
     }
 
     if (selectedMode === 'flashcard') {
-      setQuizStartTime(Date.now());
+      initNewSession();
       setFlashcardQuestions(shuffle([...events]).slice(0, qCount));
       setFcIndex(0);
       setCurrentScreen('flashcard');
       return;
     }
 
+    initNewSession();
     setSettingsMode(selectedMode);
-    setQuizStartTime(Date.now());
     setIsReviewMode(false);
     setIsWeakOnlyMode(false);
 
@@ -659,13 +826,14 @@ export const App: React.FC = () => {
               isFilteredQuizMode={isFilteredQuizMode}
               filteredQuizLabel={filteredQuizLabel}
               isTrackerConnected={isTrackerConnected}
-              onStartQuiz={startGame}
+              onStartQuiz={handleStartQuizFromFlashcards}
               onReplayFlashcards={() => {
                 setFcIndex(0);
-                setQuizStartTime(Date.now());
+                startNextRound();
                 setCurrentScreen('flashcard');
               }}
-              onGoToStart={() => setCurrentScreen('start')}
+              onGoToStart={() => handleGoToStartWithSaveCheck()}
+              onRecordSaved={() => setIsSessionRecorded(true)}
             />
           )}
 
@@ -680,17 +848,13 @@ export const App: React.FC = () => {
               incorrectCount={incorrectQuestions.length}
               isTrackerConnected={isTrackerConnected}
               onReviewOnly={handleReviewOnly}
+              onReviewWithFlashcards={handleReviewWithFlashcards}
               onRestartAll={() => {
-                if (isFilteredQuizMode) {
-                  startGame();
-                } else {
-                  startGame();
-                }
+                startNextRound();
+                startGame();
               }}
-              onGoToStart={() => {
-                setIsFilteredQuizMode(false);
-                setCurrentScreen('start');
-              }}
+              onGoToStart={() => handleGoToStartWithSaveCheck()}
+              onRecordSaved={() => setIsSessionRecorded(true)}
             />
           )}
         </div>
@@ -760,11 +924,19 @@ export const App: React.FC = () => {
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
         message={confirmModal.message}
+        iconClass={confirmModal.iconClass}
+        iconColorClass={confirmModal.iconColorClass}
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
         confirmBtnClass={confirmModal.confirmBtnClass}
         onConfirm={confirmModal.onConfirm}
-        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        onCancel={() => {
+          if (confirmModal.onCancel) {
+            confirmModal.onCancel();
+          } else {
+            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          }
+        }}
       />
 
       {/* カスタムアラートダイアログ */}

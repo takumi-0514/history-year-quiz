@@ -12,8 +12,10 @@ interface QuizResultScreenProps {
   incorrectCount: number;
   isTrackerConnected: boolean;
   onReviewOnly: () => void;
+  onReviewWithFlashcards: () => void;
   onRestartAll: () => void;
   onGoToStart: () => void;
+  onRecordSaved?: () => void;
 }
 
 export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
@@ -26,8 +28,10 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
   incorrectCount,
   isTrackerConnected,
   onReviewOnly,
+  onReviewWithFlashcards,
   onRestartAll,
   onGoToStart,
+  onRecordSaved,
 }) => {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const mins = Math.floor(elapsedSec / 60);
@@ -54,6 +58,7 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
     const ok = await pushStudyTrackerRecord(calcMins, elapsedSec, quizModeFull);
     if (ok) {
       setSyncStatus('success');
+      if (onRecordSaved) onRecordSaved();
     } else {
       setSyncStatus('error');
     }
@@ -120,7 +125,7 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
             <i className="fa-solid fa-cloud-arrow-up"></i> 学習記録を送信
           </h3>
           <p className="text-[10px] text-stone-600 mb-3">
-            今回の修行時間: {mins}分{secs}秒
+            今回の学習時間 (セッション合計): {mins > 0 ? `${mins}分` : ''}{secs}秒
           </p>
           {syncStatus !== 'success' ? (
             <button
@@ -150,13 +155,22 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
       {/* アクションボタンエリア */}
       <div className="flex flex-col gap-3 max-w-sm mx-auto">
         {hasIncorrectQuestions && (
-          <button
-            type="button"
-            onClick={onReviewOnly}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow flex items-center justify-center gap-2 text-sm cursor-pointer animate-bounce"
-          >
-            <i className="fa-solid fa-triangle-exclamation"></i> 間違えた問題のみ ({incorrectCount}問) で再挑戦！
-          </button>
+          <div className="flex flex-col gap-2 w-full">
+            <button
+              type="button"
+              onClick={onReviewOnly}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow flex items-center justify-center gap-2 text-sm cursor-pointer"
+            >
+              <i className="fa-solid fa-arrows-rotate"></i> 間違えた問題のみ ({incorrectCount}問) で再挑戦！
+            </button>
+            <button
+              type="button"
+              onClick={onReviewWithFlashcards}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow flex items-center justify-center gap-2 text-sm cursor-pointer"
+            >
+              <i className="fa-solid fa-layer-group"></i> 間違えた問題を暗記カードで確認
+            </button>
+          </div>
         )}
 
         <div className="flex gap-3 w-full">

@@ -19,19 +19,30 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({
   onEndEarly,
 }) => {
   const [flipped, setFlipped] = useState<boolean>(false);
+  const [prevFcIndex, setPrevFcIndex] = useState<number>(fcIndex);
+
+  // Synchronously reset flip state when card index changes before DOM render
+  if (fcIndex !== prevFcIndex) {
+    setPrevFcIndex(fcIndex);
+    setFlipped(false);
+  }
+
   const currentCard = questions[fcIndex];
   const isLastCard = fcIndex === questions.length - 1;
-
-  // Reset flip state when card index changes
-  useEffect(() => {
-    setFlipped(false);
-  }, [fcIndex]);
 
   const handleToggleFlip = () => {
     setFlipped(prev => !prev);
   };
 
+  const handlePrev = () => {
+    setFlipped(false);
+    if (fcIndex > 0) {
+      onPrevCard();
+    }
+  };
+
   const handleNext = () => {
+    setFlipped(false);
     if (isLastCard) {
       onFinishCards();
     } else {
@@ -47,15 +58,13 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({
         handleNext();
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        if (fcIndex > 0) {
-          onPrevCard();
-        }
+        handlePrev();
       } else if (e.key === ' ') {
         e.preventDefault();
         handleToggleFlip();
       }
     },
-    [fcIndex, isLastCard, handleNext, onPrevCard]
+    [fcIndex, isLastCard, handleNext, handlePrev]
   );
 
   useEffect(() => {
@@ -152,7 +161,7 @@ export const FlashcardScreen: React.FC<FlashcardScreenProps> = ({
         <button
           type="button"
           disabled={fcIndex === 0}
-          onClick={onPrevCard}
+          onClick={handlePrev}
           className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer border ${
             fcIndex === 0
               ? 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed opacity-50'

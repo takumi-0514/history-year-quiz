@@ -11,6 +11,7 @@ interface FlashcardResultScreenProps {
   onStartQuiz: () => void;
   onReplayFlashcards: () => void;
   onGoToStart: () => void;
+  onRecordSaved?: () => void;
 }
 
 export const FlashcardResultScreen: React.FC<FlashcardResultScreenProps> = ({
@@ -23,6 +24,7 @@ export const FlashcardResultScreen: React.FC<FlashcardResultScreenProps> = ({
   onStartQuiz,
   onReplayFlashcards,
   onGoToStart,
+  onRecordSaved,
 }) => {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const mins = Math.floor(elapsedSec / 60);
@@ -41,6 +43,7 @@ export const FlashcardResultScreen: React.FC<FlashcardResultScreenProps> = ({
     const ok = await pushStudyTrackerRecord(calcMins, elapsedSec, modeText);
     if (ok) {
       setSyncStatus('success');
+      if (onRecordSaved) onRecordSaved();
     } else {
       setSyncStatus('error');
     }
@@ -67,7 +70,7 @@ export const FlashcardResultScreen: React.FC<FlashcardResultScreenProps> = ({
           </p>
         </div>
         <div className="border-l border-stone-200 pl-4">
-          <p className="text-xs text-stone-500 font-bold mb-1">学習時間</p>
+          <p className="text-xs text-stone-500 font-bold mb-1">学習時間 (合計)</p>
           <p className="text-2xl font-black text-amber-800">
             <span>{mins > 0 ? `${mins}分` : ''}{secs}</span>
             <span className="text-sm font-normal text-stone-500 ml-0.5">秒</span>
@@ -116,7 +119,7 @@ export const FlashcardResultScreen: React.FC<FlashcardResultScreenProps> = ({
           onClick={onStartQuiz}
           className="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold py-3 px-4 rounded-xl transition-all shadow flex items-center justify-center gap-2 text-sm cursor-pointer"
         >
-          <i className="fa-solid fa-circle-play"></i> すぐに修行（クイズ）に挑む
+          <i className="fa-solid fa-circle-play"></i> {isFilteredQuizMode ? '確認した問題でクイズに挑戦！' : 'すぐに修行（クイズ）に挑む'}
         </button>
         <div className="flex gap-3">
           <button
