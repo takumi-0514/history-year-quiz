@@ -4,13 +4,13 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, Firestore, Unsubscribe }
 import { StudySubject, StatsMap } from '../types';
 
 const netlifyFirebaseConfig = {
-  apiKey: "AIzaSyAY6j40lEWfskNXqCpDWKMiOuVsF1rAAH4",
-  authDomain: "study-tracker-pro-dashboard.firebaseapp.com",
-  projectId: "study-tracker-pro-dashboard",
-  storageBucket: "study-tracker-pro-dashboard.firebasestorage.app",
-  messagingSenderId: "12330692555",
-  appId: "1:12330692555:web:1baf87adf42ca3381d904e",
-  measurementId: "G-CQWW6MB1KK"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAY6j40lEWfskNXqCpDWKMiOuVsF1rAAH4",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "study-tracker-pro-dashboard.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "study-tracker-pro-dashboard",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "study-tracker-pro-dashboard.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "12330692555",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:12330692555:web:1baf87adf42ca3381d904e",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-CQWW6MB1KK"
 };
 
 let db: Firestore | null = null;
@@ -253,6 +253,8 @@ export async function pushStudyTrackerRecord(minutes: number, seconds: number, q
       let historySub = subjects.find((s: any) => s.name === '歴史' || s.name === '社会');
       if (historySub) {
         subjectId = historySub.id;
+      } else if (subjects.length > 0) {
+        subjectId = subjects[0].id;
       } else {
         subjectId = 'sub_history_' + Date.now();
         subjects.push({
@@ -263,31 +265,56 @@ export async function pushStudyTrackerRecord(minutes: number, seconds: number, q
         });
         decryptedData.subjects = subjects;
       }
+      if (subjectId) {
+        localStorage.setItem('history_st_sync_subject', subjectId);
+      }
+    } else {
+      // Validate that saved subjectId exists in remote subjects
+      const exists = subjects.some((s: any) => s.id === subjectId);
+      if (!exists && subjects.length > 0) {
+        const historySub = subjects.find((s: any) => s.name === '歴史' || s.name === '社会');
+        subjectId = historySub ? historySub.id : subjects[0].id;
+        if (subjectId) {
+          localStorage.setItem('history_st_sync_subject', subjectId);
+        }
+      }
     }
 
     const today = getTodayString();
+    const nowTs = Date.now();
+    const recordMinutes = minutes > 0 ? minutes : (seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 0);
     
     // Add to logs (timeSchedules/logs structure) - minutes
-    if (minutes > 0) {
+    if (recordMinutes > 0) {
       let logs = decryptedData.logs || [];
-      logs.push({
-        id: 'log_history_' + Date.now(),
+      const logEntry = {
+        id: 'log_history_' + nowTs,
         subjectId: subjectId,
         date: today,
-        minutes: minutes,
-        note: `[歴史暗記道場] ${quizModeText}`
-      });
+        minutes: recordMinutes,
+        note: `[歴史暗記道場] ${quizModeText}`,
+        createdAt: nowTs,
+        timestamp: nowTs
+      };
+      logs.push(logEntry);
       decryptedData.logs = logs;
+
+      // Also support timeSchedules if present
+      if (Array.isArray(decryptedData.timeSchedules)) {
+        decryptedData.timeSchedules.push(logEntry);
+      }
     }
     
     // Add to problemLogs - detailed record in seconds
     let pLogs = decryptedData.problemLogs || [];
     pLogs.push({
-      id: 'plog_history_' + Date.now(),
+      id: 'plog_history_' + nowTs,
       subjectId: subjectId,
       name: `歴史暗記道場 (${quizModeText})`,
       seconds: seconds,
-      date: today
+      date: today,
+      createdAt: nowTs,
+      timestamp: nowTs
     });
     decryptedData.problemLogs = pLogs;
     
@@ -297,7 +324,7 @@ export async function pushStudyTrackerRecord(minutes: number, seconds: number, q
     
     return true;
   } catch(e) {
-    console.error(e);
+    console.error("pushStudyTrackerRecord failed:", e);
     return false;
   }
 }

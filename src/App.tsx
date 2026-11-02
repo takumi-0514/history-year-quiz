@@ -75,6 +75,7 @@ export const App: React.FC = () => {
   // Time & Session tracking state
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
   const [accumulatedSessionSec, setAccumulatedSessionSec] = useState<number>(0);
+  const [sessionSavedSec, setSessionSavedSec] = useState<number>(0);
   const [isSessionRecorded, setIsSessionRecorded] = useState<boolean>(false);
   const [quizElapsedSec, setQuizElapsedSec] = useState<number>(0);
 
@@ -83,6 +84,7 @@ export const App: React.FC = () => {
     const now = Date.now();
     setRoundStartTime(now);
     setAccumulatedSessionSec(0);
+    setSessionSavedSec(0);
     setIsSessionRecorded(false);
   };
 
@@ -114,6 +116,23 @@ export const App: React.FC = () => {
       total += Math.max(0, Math.floor((Date.now() - roundStartTime) / 1000));
     }
     return total;
+  };
+
+  // Save to Study Tracker handler
+  const handleSaveSessionToTracker = async (label: string): Promise<boolean> => {
+    const totalSec = finishCurrentRound();
+    const unsavedSec = Math.max(0, totalSec - sessionSavedSec);
+    const secToSave = unsavedSec > 0 ? unsavedSec : totalSec;
+    if (secToSave <= 0) return true;
+
+    const calcMins = Math.max(1, Math.round(secToSave / 60));
+    const ok = await pushStudyTrackerRecord(calcMins, secToSave, label);
+    if (ok) {
+      setSessionSavedSec(totalSec);
+      setIsSessionRecorded(true);
+      return true;
+    }
+    return false;
   };
 
   // Modals state
@@ -244,8 +263,12 @@ export const App: React.FC = () => {
   const isMatchaTheme = settingsMode === 'sort' || settingsMode === 'same_era';
 
   // Start Flashcards
-  const startFlashcards = useCallback(() => {
-    initNewSession();
+  const startFlashcards = useCallback((isNewSession: boolean = true) => {
+    if (isNewSession) {
+      initNewSession();
+    } else {
+      startNextRound();
+    }
     if (dateFilteredDatabase.length === 0) {
       showAlert('お知らせ', '指定された年代のデータが見つかりません。', 'fa-circle-info', 'text-amber-700');
       return;
@@ -263,13 +286,17 @@ export const App: React.FC = () => {
   }, [dateFilteredDatabase, questionCount]);
 
   // Start Quiz
-  const startGame = useCallback(() => {
+  const startGame = useCallback((isNewSession: boolean = true) => {
     if (settingsMode === 'flashcard') {
-      startFlashcards();
+      startFlashcards(isNewSession);
       return;
     }
 
-    initNewSession();
+    if (isNewSession) {
+      initNewSession();
+    } else {
+      startNextRound();
+    }
     setIsReviewMode(false);
     setIsFilteredQuizMode(false);
 
@@ -545,20 +572,28 @@ export const App: React.FC = () => {
   // Return to start screen with save confirmation if unsaved progress exists
   const handleGoToStartWithSaveCheck = (onConfirmed?: () => void) => {
     const totalSec = getCurrentTotalSessionSec();
+    const unsavedSec = Math.max(0, totalSec - sessionSavedSec);
 
-    if (isTrackerConnected && !isSessionRecorded && totalSec >= 5) {
-      const mins = Math.floor(totalSec / 60);
-      const secs = totalSec % 60;
+    if (isTrackerConnected && unsavedSec >= 5) {
+      const mins = Math.floor(unsavedSec / 60);
+      const secs = unsavedSec % 60;
       const timeStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
+      const totalMins = Math.floor(totalSec / 60);
+      const totalSecs = totalSec % 60;
+      const totalTimeStr = totalMins > 0 ? `${totalMins}分${totalSecs}秒` : `${totalSecs}秒`;
 
       let fieldTxt = '日本史';
       if (settingsField === 'world') fieldTxt = '世界史';
       else if (settingsField === 'mixed') fieldTxt = '日世混合';
 
+      const promptLabel = unsavedSec === totalSec
+        ? `今回の学習時間（合計 ${timeStr}）`
+        : `今回の学習時間（未保存分: ${timeStr} / セッション累計: ${totalTimeStr}）`;
+
       setConfirmModal({
         isOpen: true,
         title: '学習記録を保存しますか？',
-        message: `今回の学習時間（合計 ${timeStr}）を Study Tracker に送信して保存しますか？\n（保存せずに戻ると今回の記録は保存されません）`,
+        message: `${promptLabel} を Study Tracker に送信して保存しますか？\n（保存せずに戻ると未保存分の記録は保存されません）`,
         iconClass: 'fa-cloud-arrow-up',
         iconColorClass: 'text-indigo-600',
         confirmText: '保存してトップへ',
@@ -566,15 +601,15 @@ export const App: React.FC = () => {
         confirmBtnClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
         onConfirm: async () => {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
-          const calcMins = Math.max(1, Math.round(totalSec / 60));
           let label = `【学習セッション】分野: ${fieldTxt}`;
           if (isFilteredQuizMode) {
             label = `【特訓学習 ${filteredQuizLabel}】`;
           }
-          await pushStudyTrackerRecord(calcMins, totalSec, label);
-          setIsSessionRecorded(true);
+          await handleSaveSessionToTracker(label);
           setRoundStartTime(0);
           setAccumulatedSessionSec(0);
+          setSessionSavedSec(0);
+          setIsSessionRecorded(false);
           if (onConfirmed) onConfirmed();
           else setCurrentScreen('start');
         },
@@ -582,6 +617,8 @@ export const App: React.FC = () => {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
           setRoundStartTime(0);
           setAccumulatedSessionSec(0);
+          setSessionSavedSec(0);
+          setIsSessionRecorded(false);
           if (onConfirmed) onConfirmed();
           else setCurrentScreen('start');
         },
@@ -589,6 +626,8 @@ export const App: React.FC = () => {
     } else {
       setRoundStartTime(0);
       setAccumulatedSessionSec(0);
+      setSessionSavedSec(0);
+      setIsSessionRecorded(false);
       if (onConfirmed) onConfirmed();
       else setCurrentScreen('start');
     }
@@ -833,7 +872,8 @@ export const App: React.FC = () => {
                 setCurrentScreen('flashcard');
               }}
               onGoToStart={() => handleGoToStartWithSaveCheck()}
-              onRecordSaved={() => setIsSessionRecorded(true)}
+              onSaveToTracker={handleSaveSessionToTracker}
+              isSessionRecorded={isSessionRecorded}
             />
           )}
 
@@ -850,11 +890,11 @@ export const App: React.FC = () => {
               onReviewOnly={handleReviewOnly}
               onReviewWithFlashcards={handleReviewWithFlashcards}
               onRestartAll={() => {
-                startNextRound();
-                startGame();
+                startGame(false);
               }}
               onGoToStart={() => handleGoToStartWithSaveCheck()}
-              onRecordSaved={() => setIsSessionRecorded(true)}
+              onSaveToTracker={handleSaveSessionToTracker}
+              isSessionRecorded={isSessionRecorded}
             />
           )}
         </div>

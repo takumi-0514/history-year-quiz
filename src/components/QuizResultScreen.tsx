@@ -15,7 +15,8 @@ interface QuizResultScreenProps {
   onReviewWithFlashcards: () => void;
   onRestartAll: () => void;
   onGoToStart: () => void;
-  onRecordSaved?: () => void;
+  onSaveToTracker: (quizModeFull: string) => Promise<boolean>;
+  isSessionRecorded?: boolean;
 }
 
 export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
@@ -31,9 +32,12 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
   onReviewWithFlashcards,
   onRestartAll,
   onGoToStart,
-  onRecordSaved,
+  onSaveToTracker,
+  isSessionRecorded = false,
 }) => {
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'sending' | 'success' | 'error'>(
+    isSessionRecorded ? 'success' : 'idle'
+  );
   const mins = Math.floor(elapsedSec / 60);
   const secs = elapsedSec % 60;
 
@@ -54,11 +58,9 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
     setSyncStatus('sending');
 
     const quizModeFull = `${modeLabelText} (正解: ${score}/${totalQuestions})`;
-    const calcMins = Math.max(1, Math.round(elapsedSec / 60));
-    const ok = await pushStudyTrackerRecord(calcMins, elapsedSec, quizModeFull);
+    const ok = await onSaveToTracker(quizModeFull);
     if (ok) {
       setSyncStatus('success');
-      if (onRecordSaved) onRecordSaved();
     } else {
       setSyncStatus('error');
     }
@@ -128,22 +130,29 @@ export const QuizResultScreen: React.FC<QuizResultScreenProps> = ({
             今回の学習時間 (セッション合計): {mins > 0 ? `${mins}分` : ''}{secs}秒
           </p>
           {syncStatus !== 'success' ? (
-            <button
-              type="button"
-              disabled={syncStatus === 'sending'}
-              onClick={handleSyncToTracker}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-2.5 px-5 rounded-lg transition-all shadow-md flex items-center justify-center gap-2 text-sm w-full cursor-pointer"
-            >
-              {syncStatus === 'sending' ? (
-                <>
-                  送信中 <i className="fa-solid fa-spinner fa-spin"></i>
-                </>
-              ) : (
-                <>
-                  Study Trackerに記録する <i className="fa-solid fa-paper-plane"></i>
-                </>
+            <>
+              <button
+                type="button"
+                disabled={syncStatus === 'sending'}
+                onClick={handleSyncToTracker}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-2.5 px-5 rounded-lg transition-all shadow-md flex items-center justify-center gap-2 text-sm w-full cursor-pointer"
+              >
+                {syncStatus === 'sending' ? (
+                  <>
+                    送信中 <i className="fa-solid fa-spinner fa-spin"></i>
+                  </>
+                ) : (
+                  <>
+                    Study Trackerに記録する <i className="fa-solid fa-paper-plane"></i>
+                  </>
+                )}
+              </button>
+              {syncStatus === 'error' && (
+                <p className="text-[10px] text-red-600 font-bold mt-2">
+                  <i className="fa-solid fa-circle-exclamation"></i> 送信に失敗しました。設定のルームID・パスワードをご確認ください。
+                </p>
               )}
-            </button>
+            </>
           ) : (
             <p className="text-[10px] text-green-700 font-bold mt-2">
               <i className="fa-solid fa-check-circle"></i> 記録を送信しました！
