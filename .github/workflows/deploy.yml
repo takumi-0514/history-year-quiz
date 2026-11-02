@@ -25,12 +25,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Build Vite App
-        run: npx vite build
+        run: npx vite build --base=/history-year-quiz/
+        env:
+          GITHUB_PAGES: 'true'
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
